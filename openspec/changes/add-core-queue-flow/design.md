@@ -34,6 +34,7 @@ erDiagram
   Business ||--o{ Ticket : issues
   Business ||--o{ DailySequence : numbers
   StaffUser ||--o{ StaffSession : opens
+  StaffUser ||--o{ Ticket : calls
   Counter ||--o{ Ticket : calls
 ```
 
@@ -42,7 +43,7 @@ erDiagram
 - `StaffSession(id, tokenHash UNIQUE, staffUserId, counterId NULL, expiresAt)`
 - `Counter(id, businessId, name, UNIQUE(businessId, name))`
 - `DailySequence(businessId, serviceDate, lastSeq, PRIMARY KEY(businessId, serviceDate))`
-- `Ticket(id, publicTokenHash UNIQUE, businessId, serviceDate, seq, status, counterId NULL, calledAt, servedAt)`
+- `Ticket(id, publicTokenHash UNIQUE, businessId, serviceDate, seq, status, counterId NULL, calledByStaffId NULL, calledAt, servedAt)`
   - `UNIQUE(businessId, serviceDate, seq)`
   - `CREATE UNIQUE INDEX ... ON Ticket(counterId) WHERE status = 'CALLED'`
   - `INDEX(businessId, serviceDate, status, seq)`
@@ -103,7 +104,11 @@ Ticket URLs use 128 bits from `crypto.randomBytes(16)` encoded as base64url. Onl
 - `POST /api/staff/call-next`.
 - `POST /api/staff/tickets/[id]/serve`.
 
-Pages: `/q/[slug]` (issue), `/t/[token]` (ticket), `/staff/login`, `/staff` (console). Polling: ticket page every 3 seconds; console every 3 seconds; intervals pause when `document.hidden` and stop at terminal states.
+Pages: `/q/[slug]` (issue), `/t/[token]` (ticket), `/staff/login`, `/staff` (console). The ticket page and console poll every 1 second, pause while the tab is hidden, and the ticket page stops at terminal states. Both pages server-render their initial data, so the first paint already shows the ticket or console state instead of a loading placeholder.
+
+### Round-trip budget
+
+Each hot path is one SQL statement: issuance uses a data-modifying CTE for the sequence and ticket, ticket lookup computes position in the same query, call-next claims and joins its counter in one statement, serve is one conditional update, and the staff console loads session, counters, current ticket, and waiting count together. This keeps the app responsive when the database is remote; the polling interval is one second because each poll costs one query.
 
 ### Expiry without cron
 
@@ -113,7 +118,7 @@ A ticket is expired when `serviceDate < current business day` and status is not 
 
 - Two staff can select the same counter (no lock) → calls stay attributed and consistent, but the console may show another staff member's active ticket; accepted for core scope, exclusivity needs presence/heartbeat later.
 - A counter whose CALLED ticket is never served stays blocked → partial index rejects further calls; serving remains possible after rollover, and no auto-expiry is in scope.
-- Polling produces one request per open page per 3 seconds → indexed single-row reads, `no-store`, pausing hidden tabs; a notification push channel was not chosen.
+- Polling produces one request per open page per second → each poll is a single indexed query and hidden tabs pause; a notification push channel was not chosen.
 - Ticket URL leakage through history, screenshots, or shared links → treated as bearer credential; hash-at-rest plus `no-referrer` limits exposure, but the holder can always view the ticket.
 - Midnight rollover during service → ticket keeps its issue day; only "callable" is gated by day, so in-flight service completes normally.
 - Day computation depends on the business's IANA timezone string → validate timezone on write; test a DST transition.

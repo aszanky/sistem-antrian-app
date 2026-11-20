@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Business {
+  id        String          @id @default(cuid())
+  slug      String          @unique
+  name      String
+  timezone  String
+  createdAt DateTime        @default(now())
+  staff     StaffUser[]
+  counters  Counter[]
+  tickets   Ticket[]
+  sequences DailySequence[]
+}
+
+model StaffUser {
+  id           String         @id @default(cuid())
+  businessId   String
+  business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  email        String         @unique
+  passwordHash String
+  createdAt    DateTime       @default(now())
+  sessions     StaffSession[]
+  calledTickets Ticket[]
+}
+
+model StaffSession {
+  id          String     @id @default(cuid())
+  tokenHash   String     @unique
+  staffUserId String
+  staff       StaffUser  @relation(fields: [staffUserId], references: [id], onDelete: Cascade)
+  counterId   String?
+  counter     Counter?   @relation(fields: [counterId], references: [id], onDelete: SetNull)
+  expiresAt   DateTime
+  createdAt   DateTime   @default(now())
+
+  @@index([expiresAt])
+}
+
+model Counter {
+  id        String         @id @default(cuid())
+  businessId String
+  business  Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  name      String
+  tickets   Ticket[]
+  sessions  StaffSession[]
+
+  @@unique([businessId, name])
+}
+
+model DailySequence {
+  businessId  String
+  business    Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  serviceDate DateTime   @db.Date
+  lastSeq     Int
+
+  @@id([businessId, serviceDate])
+}
+
+enum TicketStatus {
+  WAITING
+  CALLED
+  SERVED
+}
+
+model Ticket {
+  id              String       @id @default(cuid())
+  publicTokenHash String       @unique
+  businessId      String
+  business        Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  serviceDate     DateTime     @db.Date
+  seq             Int
+  status          TicketStatus @default(WAITING)
+  counterId       String?
+  counter         Counter?     @relation(fields: [counterId], references: [id], onDelete: SetNull)
+  calledByStaffId String?
+  calledBy        StaffUser?   @relation(fields: [calledByStaffId], references: [id], onDelete: SetNull)
+  calledAt        DateTime?
+  servedAt        DateTime?
+  createdAt       DateTime     @default(now())
+
+  @@unique([businessId, serviceDate, seq])
+  @@index([businessId, serviceDate, status, seq])
+  @@index([counterId, status])
+}
