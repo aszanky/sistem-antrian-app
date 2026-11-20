@@ -1,0 +1,51 @@
+schema: spec-driven
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
+
+context: |
+  This is queue management system for everything, so every business can use this system to manage their queues. The system should be able to handle multiple queues for different businesses, and each queue should have its own set of rules and configurations.
+  Tech Stack: Next.js, React.js, Typescript
+  Domain: Customer Queue Management System
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Always state what is out of scope
+  tasks:
+    - Break tasks into chunks of max 2 hours
+operations:
+  apply:
+    guidance:
+      - Keep line of codes <= 300 LoC
+      - Keep test summaries concise
+  archive:
+    guidance:
+      - Summarize the archive outcome before finishing
