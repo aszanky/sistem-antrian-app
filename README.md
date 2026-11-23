@@ -1,8 +1,9 @@
 # Queue management
 
-Multi-tenant walk-in queue. Visitors take a number from a business's public
-page; staff sign in, pick a counter, call the next number, and mark it served.
-One deployment serves many businesses, one shared daily queue per business.
+Multi-tenant walk-in queue. Visitors create an account, take a number from a
+business's public page, and follow the ticket from any device. Staff sign in,
+pick a counter, call the next number, and mark it served. One deployment
+serves many businesses, one shared daily queue per business.
 
 ## Stack
 
@@ -15,7 +16,7 @@ Requirements: Node.js 20+ and PostgreSQL 14+.
 ```bash
 npm install
 createdb antrian_dev
-cp .env.example .env        # set DATABASE_URL to your database
+cp .env.example .env        # set DATABASE_URL, DIRECT_URL, and APP_URL
 npx prisma migrate deploy
 npm run db:seed
 npm run dev
@@ -23,10 +24,15 @@ npm run dev
 
 Open:
 
-- Public queue: <http://localhost:3000/q/demo-teller>
+- Customer sign up: <http://localhost:3000/account/signup>
+- Customer sign in: <http://localhost:3000/account/login>
+- Browse queues: <http://localhost:3000/q>
+- My tickets: <http://localhost:3000/account>
+- Public queue (requires sign-in): <http://localhost:3000/q/demo-teller>
 - Staff sign in: <http://localhost:3000/staff/login>
 
-Seeded demo accounts (both use password `password123`):
+Seeded **staff** accounts (both use password `password123`). Customers create
+their own accounts from `/account/signup`:
 
 | Business | Queue page | Email |
 | --- | --- | --- |
@@ -47,6 +53,34 @@ DIRECT_URL="postgresql://postgres.<ref>:<password>@aws-<n>-<region>.pooler.supab
 
 Do not add `pgbouncer=true` to the session-pooler URL. Prisma's pgbouncer mode costs several extra protocol round trips per query; on a remote database that turns a 245 ms query into 1.3 s. If you must use the transaction pooler (port 6543), benchmark it before enabling that flag.
 
+## Customer accounts
+
+Visitors must be signed in before taking a number. The queue page redirects to
+`/account/login` and returns to the queue afterwards.
+
+- Sign up with email and password; passwords have at least 8 characters.
+- Sessions last 30 days and are stored in a separate `customer_session` cookie,
+  never accepted by staff routes.
+- Email verification is non-blocking. Signup sends a link; the dashboard shows
+  an unverified notice with a resend action until it is opened.
+- Password reset always answers the same way, sends a 1-hour single-use link,
+  and signs out existing sessions.
+- One active ticket is allowed per customer, per business, per business day.
+  Asking again returns the existing ticket without consuming a number.
+- `/q` lists every business. A business where the customer already has an
+  active ticket today links to that ticket; otherwise it links to the queue.
+- `/account` lists active tickets plus anything served or expired in the last
+  30 days. `/account/tickets/<id>` shows live status.
+
+Email delivery uses Nodemailer over `SMTP_URL` with `MAIL_FROM`. `APP_URL` is
+used to build verification and reset links. With no `SMTP_URL`, the app logs
+`[mail:dev] ...` with the link instead of sending mail, which is enough for
+local development. Verification links expire in 24 hours.
+
+**Breaking:** anonymous ticket links no longer grant access. The ticket token
+still routes a deep link, but only the owning customer session can view it.
+Legacy tickets have no owner and are unreachable.
+
 ## Staff flow
 
 1. Sign in at `/staff/login`. The account belongs to exactly one business.
@@ -57,10 +91,11 @@ Do not add `pgbouncer=true` to the session-pooler URL. Prisma's pgbouncer mode c
    counter must mark its current ticket served before calling again.
 4. Press **Mark served** after the visitor is done.
 
-The console refreshes every 1 second. Visitors keep their ticket page open;
-it polls every 1 second, shows their position, the counter that called them,
-and stops refreshing once served or expired. Both pages are server-rendered
-with their initial state, so content appears before the first poll.
+The console refreshes every 1 second. Customers open their ticket from
+`/account` or the original link; the ticket page polls every 1 second, shows
+their position and the counter that called them, and stops refreshing once
+served or expired. Both pages are server-rendered with their initial state, so
+content appears before the first poll.
 
 ## Provision a business
 
@@ -99,6 +134,27 @@ polling stop condition.
 ```bash
 npm run lint
 npm run build
+```
+
+## Migrations and rollback
+
+Apply the migration before deploying the app:
+
+```bash
+npx prisma migrate deploy
+npm run db:seed
+```
+
+Rollback (no ticket rows are deleted):
+
+```sql
+DROP INDEX IF EXISTS "Ticket_one_active_per_customer_day";
+ALTER TABLE "Ticket" DROP CONSTRAINT IF EXISTS "Ticket_customerId_fkey";
+ALTER TABLE "Ticket" DROP COLUMN IF EXISTS "customerId";
+DROP TABLE IF EXISTS "EmailToken";
+DROP TABLE IF EXISTS "CustomerSession";
+DROP TABLE IF EXISTS "CustomerUser";
+DROP TYPE IF EXISTS "EmailTokenPurpose";
 ```
 
 ## Behavior notes

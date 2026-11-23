@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { currentCustomerSession } from "@/lib/customer-session";
 import { prisma } from "@/lib/db";
 import { IssueTicket } from "./IssueTicket";
 
@@ -14,6 +15,11 @@ export default async function QueuePage({
     select: { name: true },
   });
   if (!business) notFound();
+
+  const session = await currentCustomerSession();
+  if (!session) {
+    redirect(`/account/login?next=${encodeURIComponent(`/q/${slug}`)}`);
+  }
 
   return (
     <main className="relative flex min-h-dvh flex-col items-center justify-center px-4 py-10 sm:px-6">
@@ -34,9 +40,20 @@ export default async function QueuePage({
             </span>
             Antrian
           </Link>
-          <span className="text-xs text-stone-500 dark:text-stone-500">
-            Walk-in queue
-          </span>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/q"
+              className="text-xs font-medium text-stone-500 transition hover:text-stone-900 dark:text-stone-400 dark:hover:text-white"
+            >
+              All queues
+            </Link>
+            <Link
+              href="/account"
+              className="text-xs font-medium text-stone-500 transition hover:text-stone-900 dark:text-stone-400 dark:hover:text-white"
+            >
+              My tickets
+            </Link>
+          </div>
         </header>
 
         <section className="overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-xl shadow-stone-300/30 dark:border-stone-800 dark:bg-stone-900 dark:shadow-black/30">
@@ -48,8 +65,8 @@ export default async function QueuePage({
               {business.name}
             </h1>
             <p className="mt-2 max-w-md text-sm leading-relaxed text-stone-600 dark:text-stone-400">
-              Request a number below. Your ticket shows your place in line and
-              tells you which counter to visit.
+              Request a number below. The ticket is saved to your account, shows
+              your place in line, and tells you which counter to visit.
             </p>
           </div>
           <div className="px-6 py-7 sm:px-8">
@@ -58,7 +75,7 @@ export default async function QueuePage({
         </section>
 
         <p className="mt-5 text-center text-xs leading-relaxed text-stone-500 dark:text-stone-500">
-          Anonymous ticket. No name, phone, or email required.
+          Signed in as {session.customer.email}. Your ticket stays in My tickets.
         </p>
       </div>
     </main>

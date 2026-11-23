@@ -42,16 +42,16 @@ function formatTime(value: string | null) {
 }
 
 export function TicketStatus({
-  token,
+  ticketId,
   initial,
 }: {
-  token: string;
+  ticketId: string;
   initial: TicketView;
 }) {
   const { data, error } = usePolling(
     async () => {
       const response = await fetch(
-        `/api/tickets/${encodeURIComponent(token)}`,
+        `/api/account/tickets/${encodeURIComponent(ticketId)}`,
         { cache: "no-store" },
       );
       if (!response.ok) throw new Error("Could not refresh the ticket.");

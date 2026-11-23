@@ -44,6 +44,46 @@ model StaffSession {
   @@index([expiresAt])
 }
 
+model CustomerUser {
+  id              String            @id @default(cuid())
+  email           String            @unique
+  passwordHash    String
+  emailVerifiedAt DateTime?
+  createdAt       DateTime          @default(now())
+  sessions        CustomerSession[]
+  tickets         Ticket[]
+  emailTokens     EmailToken[]
+}
+
+model CustomerSession {
+  id             String       @id @default(cuid())
+  tokenHash      String       @unique
+  customerUserId String
+  customer       CustomerUser @relation(fields: [customerUserId], references: [id], onDelete: Cascade)
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+
+  @@index([expiresAt])
+}
+
+enum EmailTokenPurpose {
+  VERIFY
+  RESET
+}
+
+model EmailToken {
+  id             String           @id @default(cuid())
+  tokenHash      String           @unique
+  customerUserId String
+  customer       CustomerUser     @relation(fields: [customerUserId], references: [id], onDelete: Cascade)
+  purpose        EmailTokenPurpose
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime         @default(now())
+
+  @@index([customerUserId, purpose])
+}
+
 model Counter {
   id        String         @id @default(cuid())
   businessId String
@@ -85,8 +125,11 @@ model Ticket {
   calledAt        DateTime?
   servedAt        DateTime?
   createdAt       DateTime     @default(now())
+  customerId      String?
+  customer        CustomerUser? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@unique([businessId, serviceDate, seq])
   @@index([businessId, serviceDate, status, seq])
   @@index([counterId, status])
+  @@index([customerId, businessId, serviceDate, status])
 }

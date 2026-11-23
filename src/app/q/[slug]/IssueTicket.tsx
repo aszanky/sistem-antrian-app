@@ -51,8 +51,8 @@ export function IssueTicket({ slug }: { slug: string }) {
           <span aria-hidden>→</span>
         </Link>
         <div className="mt-5 rounded-2xl border border-dashed border-stone-300 px-4 py-3 text-left text-xs leading-relaxed text-stone-500 dark:border-stone-700 dark:text-stone-400">
-          Keep this link. Anyone holding it can view the ticket, and it updates
-          on its own until you are served.
+          This ticket is saved to your account. Open it from My tickets on any
+          device, or keep this page open for live updates.
         </div>
       </div>
     );
@@ -78,7 +78,7 @@ export function IssueTicket({ slug }: { slug: string }) {
         {pending ? "Issuing ticket…" : "Take a number"}
       </button>
       <p className="mt-3 text-center text-xs text-stone-500 dark:text-stone-500">
-        One tap. No personal details. Works on any phone.
+        Saved to your account. Works on any device.
       </p>
       {error ? (
         <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300">

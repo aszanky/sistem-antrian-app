@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Lets any visitor take a numbered place in a business's shared queue from their own browser and follow that ticket's status without creating an account.
+Lets customers take a numbered place in a business's shared queue and follow their ticket's status from a recoverable account.
 
 ## Requirements
 

@@ -16,6 +16,7 @@ export function isUniqueViolation(error: unknown): boolean {
     message?: string;
   };
   return (
+    candidate?.code === "P2002" ||
     candidate?.meta?.code === "23505" ||
     candidate?.code === "23505" ||
     (typeof candidate?.message === "string" && candidate.message.includes("23505"))

@@ -1,27 +1,51 @@
 import { describe, expect, it } from "vitest";
-import { GET as getTicket } from "@/app/api/tickets/[token]/route";
-import { getTicketView } from "@/lib/ticket-service";
 import { callNext, serveTicket } from "@/lib/queue-service";
+import { prisma } from "@/lib/db";
 import {
+  getTicketOwnerByToken,
+  getTicketViewForCustomer,
+} from "@/lib/ticket-service";
+import { serviceDateValue } from "@/lib/time";
+import { publicTokenHash } from "@/lib/tokens";
+import {
+  createCustomerWithSession,
   createFixture,
   issueOrThrow,
+  issueTicketsForBusiness,
+  unique,
 } from "./helpers";
 
 const NOW = new Date("2026-05-01T03:00:00Z");
 const YESTERDAY = new Date("2026-04-30T03:00:00Z");
 
-describe("ticket view", () => {
-  it("returns the number, waiting status, and position", async () => {
-    const { business } = await createFixture();
-    const first = await issueOrThrow(business.slug, NOW);
-    const second = await issueOrThrow(business.slug, NOW);
+describe("account ticket view", () => {
+  it("returns the number, waiting status, and position to the owner", async () => {
+    const fixture = await createFixture();
+    const first = await issueOrThrow(
+      fixture.business.slug,
+      fixture.customerToken,
+      NOW,
+    );
+    const account = await createCustomerWithSession();
+    const second = await issueOrThrow(fixture.business.slug, account.token, NOW);
 
-    expect(await getTicketView(first.token, NOW)).toMatchObject({
+    const firstView = await getTicketViewForCustomer(
+      first.ticketId,
+      fixture.customerToken,
+      NOW,
+    );
+    const secondView = await getTicketViewForCustomer(
+      second.ticketId,
+      account.token,
+      NOW,
+    );
+
+    expect(firstView.view).toMatchObject({
       number: "001",
       status: "WAITING",
       position: 0,
     });
-    expect(await getTicketView(second.token, NOW)).toMatchObject({
+    expect(secondView.view).toMatchObject({
       number: "002",
       status: "WAITING",
       position: 1,
@@ -29,95 +53,182 @@ describe("ticket view", () => {
   });
 
   it("advances position when earlier tickets are served", async () => {
-    const { business, staff, counter } = await createFixture();
-    await issueOrThrow(business.slug, NOW);
-    const second = await issueOrThrow(business.slug, NOW);
-    const third = await issueOrThrow(business.slug, NOW);
+    const fixture = await createFixture();
+    const tickets = await issueTicketsForBusiness(fixture.business.slug, 3, NOW);
 
     const called = await callNext(
-      { businessId: business.id, counterId: counter.id, staffId: staff.id },
+      {
+        businessId: fixture.business.id,
+        counterId: fixture.counter.id,
+        staffId: fixture.staff.id,
+      },
       NOW,
     );
     await serveTicket(
       {
-        businessId: business.id,
-        counterId: counter.id,
+        businessId: fixture.business.id,
+        counterId: fixture.counter.id,
         ticketId: called.id,
       },
       NOW,
     );
 
-    expect(await getTicketView(second.token, NOW)).toMatchObject({
-      status: "WAITING",
-      position: 0,
-    });
-    expect(await getTicketView(third.token, NOW)).toMatchObject({
-      status: "WAITING",
-      position: 1,
-    });
+    const thirdView = await getTicketViewForCustomer(
+      tickets[2].ticketId,
+      tickets[2].customerToken,
+      NOW,
+    );
+    expect(thirdView.view).toMatchObject({ status: "WAITING", position: 1 });
   });
 
   it("shows the counter once called", async () => {
-    const { business, staff, counter } = await createFixture();
-    const issued = await issueOrThrow(business.slug, NOW);
-
-    await callNext(
-      { businessId: business.id, counterId: counter.id, staffId: staff.id },
+    const fixture = await createFixture();
+    const issued = await issueOrThrow(
+      fixture.business.slug,
+      fixture.customerToken,
       NOW,
     );
 
-    expect(await getTicketView(issued.token, NOW)).toMatchObject({
+    await callNext(
+      {
+        businessId: fixture.business.id,
+        counterId: fixture.counter.id,
+        staffId: fixture.staff.id,
+      },
+      NOW,
+    );
+
+    const view = await getTicketViewForCustomer(
+      issued.ticketId,
+      fixture.customerToken,
+      NOW,
+    );
+    expect(view.view).toMatchObject({
       status: "CALLED",
-      counterName: counter.name,
+      counterName: fixture.counter.name,
     });
   });
 
-  it("returns null for an unknown token", async () => {
-    expect(await getTicketView("unknown-token", NOW)).toBeNull();
+  it("rejects an unauthenticated request", async () => {
+    const fixture = await createFixture();
+    const issued = await issueOrThrow(
+      fixture.business.slug,
+      fixture.customerToken,
+      NOW,
+    );
+
+    expect(
+      await getTicketViewForCustomer(issued.ticketId, "not-a-session", NOW),
+    ).toEqual({ authenticated: false, view: null });
+  });
+
+  it("returns no view to another customer", async () => {
+    const fixture = await createFixture();
+    const issued = await issueOrThrow(
+      fixture.business.slug,
+      fixture.customerToken,
+      NOW,
+    );
+    const other = await createCustomerWithSession();
+
+    expect(
+      await getTicketViewForCustomer(issued.ticketId, other.token, NOW),
+    ).toEqual({ authenticated: true, view: null });
+  });
+
+  it("returns no view for an unknown ticket", async () => {
+    const fixture = await createFixture();
+    expect(
+      await getTicketViewForCustomer(
+        "missing-ticket",
+        fixture.customerToken,
+        NOW,
+      ),
+    ).toEqual({ authenticated: true, view: null });
   });
 
   it("marks a prior-day waiting ticket as expired", async () => {
-    const { business } = await createFixture();
-    const issued = await issueOrThrow(business.slug, YESTERDAY);
+    const fixture = await createFixture();
+    const issued = await issueOrThrow(
+      fixture.business.slug,
+      fixture.customerToken,
+      YESTERDAY,
+    );
 
-    expect(await getTicketView(issued.token, NOW)).toMatchObject({
-      status: "EXPIRED",
-      position: null,
-    });
+    const view = await getTicketViewForCustomer(
+      issued.ticketId,
+      fixture.customerToken,
+      NOW,
+    );
+    expect(view.view).toMatchObject({ status: "EXPIRED", position: null });
   });
 
   it("keeps a served prior-day ticket readable", async () => {
-    const { business, staff, counter } = await createFixture();
-    const issued = await issueOrThrow(business.slug, YESTERDAY);
+    const fixture = await createFixture();
+    const issued = await issueOrThrow(
+      fixture.business.slug,
+      fixture.customerToken,
+      YESTERDAY,
+    );
     await callNext(
-      { businessId: business.id, counterId: counter.id, staffId: staff.id },
+      {
+        businessId: fixture.business.id,
+        counterId: fixture.counter.id,
+        staffId: fixture.staff.id,
+      },
       YESTERDAY,
     );
     await serveTicket(
       {
-        businessId: business.id,
-        counterId: counter.id,
-        ticketId: issued.ticket.id,
+        businessId: fixture.business.id,
+        counterId: fixture.counter.id,
+        ticketId: issued.ticketId,
       },
       YESTERDAY,
     );
 
-    const view = await getTicketView(issued.token, NOW);
-    expect(view?.status).toBe("SERVED");
-    expect(view?.servedAt).not.toBeNull();
+    const view = await getTicketViewForCustomer(
+      issued.ticketId,
+      fixture.customerToken,
+      NOW,
+    );
+    expect(view.view?.status).toBe("SERVED");
+    expect(view.view?.servedAt).not.toBeNull();
   });
 
-  it("sets no-store and no-referrer on the ticket route", async () => {
-    const { business } = await createFixture();
-    const issued = await issueOrThrow(business.slug, NOW);
+  it("does not expose a legacy unowned ticket to any customer", async () => {
+    const fixture = await createFixture();
+    const legacy = await prisma.ticket.create({
+      data: {
+        publicTokenHash: publicTokenHash(unique("legacy-token")),
+        businessId: fixture.business.id,
+        serviceDate: serviceDateValue("2026-05-01"),
+        seq: 1,
+        customerId: null,
+      },
+    });
 
-    const response = await getTicket(
-      new Request(`http://localhost/api/tickets/${issued.token}`),
-      { params: Promise.resolve({ token: issued.token }) },
+    expect(
+      await getTicketViewForCustomer(
+        legacy.id,
+        fixture.customerToken,
+        NOW,
+      ),
+    ).toEqual({ authenticated: true, view: null });
+  });
+
+  it("resolves a token to its owner for the deep-link check", async () => {
+    const fixture = await createFixture();
+    const issued = await issueOrThrow(
+      fixture.business.slug,
+      fixture.customerToken,
+      NOW,
     );
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(await getTicketOwnerByToken(issued.token ?? "")).toEqual({
+      id: issued.ticketId,
+      customerId: fixture.customer.id,
+    });
+    expect(await getTicketOwnerByToken("unknown-token")).toBeNull();
   });
 });
